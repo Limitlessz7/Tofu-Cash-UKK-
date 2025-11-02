@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Models\TransactionItem;
 use Illuminate\Support\Facades\Schema;
 
 class Transaction extends Model
@@ -29,9 +28,13 @@ class Transaction extends Model
         'created_by',
     ];
 
+    // ✅ Fix cast biar format tanggal aman di Filament & PDF
+    protected $casts = [
+        'transaction_date' => 'datetime',
+    ];
+
     /**
-     * Relasi ke transaction_items.
-     * Otomatis deteksi foreign key yang sesuai.
+     * 🔹 Relasi ke TransactionItem
      */
     public function items(): HasMany
     {
@@ -40,7 +43,7 @@ class Transaction extends Model
     }
 
     /**
-     * Deteksi kolom foreign key yang benar di tabel transaction_items.
+     * 🔹 Deteksi kolom foreign key di transaction_items
      */
     protected function resolveTransactionItemsForeignKey(): string
     {
@@ -58,11 +61,11 @@ class Transaction extends Model
             }
         }
 
-        return 'trxi_transaction_id'; // fallback
+        return 'transaction_id'; // fallback
     }
 
     /**
-     * Tentukan primary key dinamis (trx_id atau id).
+     * 🔹 Pilih primary key dinamis (trx_id / id)
      */
     public function getKeyName()
     {
@@ -81,13 +84,11 @@ class Transaction extends Model
         }
 
         $this->resolvedPrimaryKey = $key;
-
         return $this->resolvedPrimaryKey;
     }
 
     /**
-     * Atribut virtual total (tidak tersimpan di DB).
-     * Menghitung total dari relasi items.
+     * 🔹 Virtual Attribute — hitung total dari items
      */
     public function getTotalAttribute(): float
     {
@@ -101,8 +102,7 @@ class Transaction extends Model
     }
 
     /**
-     * Hook otomatis: setiap kali transaksi disimpan,
-     * kolom total_price akan diisi dengan jumlah subtotal dari items.
+     * 🔹 Saat transaksi disimpan, update total otomatis
      */
     protected static function booted()
     {
@@ -115,7 +115,6 @@ class Transaction extends Model
             if ($subtotalColumn) {
                 $transaction->total_price = $transaction->items()->sum($subtotalColumn);
             } else {
-                // fallback: hitung manual jika tidak ada kolom subtotal
                 $transaction->total_price = $transaction->items->sum(function ($item) {
                     $qtyColumn = Schema::hasColumn('transaction_items', 'trxi_qty') ? 'trxi_qty' : 'quantity';
                     $priceColumn = Schema::hasColumn('transaction_items', 'trxi_price') ? 'trxi_price' : 'price';
@@ -124,9 +123,12 @@ class Transaction extends Model
             }
         });
     }
-    public function scopePaid($query)
-{
-    return $query->where('status', 'paid');
-}
 
+    /**
+     * 🔹 Scope untuk transaksi yang sudah dibayar
+     */
+    public function scopePaid($query)
+    {
+        return $query->where('status', 'paid');
+    }
 }

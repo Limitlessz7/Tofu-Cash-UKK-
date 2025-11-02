@@ -13,6 +13,7 @@ class ListTransactions extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            // Cuma tombol "New Transaction" aja
             Actions\CreateAction::make(),
         ];
     }

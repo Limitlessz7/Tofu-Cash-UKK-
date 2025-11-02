@@ -9,17 +9,11 @@ class EditTransaction extends EditRecord
 {
     protected static string $resource = TransactionResource::class;
 
-    /**
-     * Mutasi data form sebelum update (gunakan logika dari Resource)
-     */
     protected function mutateFormDataBeforeSave(array $data): array
     {
         return TransactionResource::mutateFormDataBeforeSave($data);
     }
 
-    /**
-     * Setelah transaksi diubah, hitung ulang total dan change_amount
-     */
     protected function afterSave(): void
     {
         $total = $this->record->items()->sum('subtotal');
@@ -28,6 +22,7 @@ class EditTransaction extends EditRecord
         $this->record->update([
             'total' => $total,
             'change_amount' => max(0, $paid - $total),
+            'status' => $paid >= $total ? 'paid' : 'unpaid',
         ]);
     }
 }

@@ -2,12 +2,12 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\Transaction;
+use Carbon\Carbon;
+use Filament\Actions;
 use Filament\Pages\Page;
 use Filament\Tables;
 use Filament\Tables\Table;
-use App\Models\Transaction;
-use Carbon\Carbon;
-use Filament\Widgets\StatsOverviewWidget\Stat;
 
 class Laporan extends Page implements Tables\Contracts\HasTable
 {
@@ -18,16 +18,11 @@ class Laporan extends Page implements Tables\Contracts\HasTable
     protected static ?string $title = 'Laporan Pendapatan';
     protected static string $view = 'filament.pages.laporan';
 
-    public string $range = 'today'; // default
+    public string $range = 'today';
 
-    public function mount(): void
-    {
-        $this->range = 'today';
-    }
-
-    /**
-     * Tentukan range tanggal 
-     */
+    /** =====================
+     *  🔹 Helper Range Tanggal
+     *  ===================== */
     protected function getDateRange(): array
     {
         return match ($this->range) {
@@ -37,21 +32,21 @@ class Laporan extends Page implements Tables\Contracts\HasTable
         };
     }
 
-    /**
-     * Hitung total pendapatan di range waktu tertentu
-     */
+    /** =====================
+     *  🔹 Total Pendapatan
+     *  ===================== */
     protected function getTotalPendapatan(): float
     {
         [$start, $end] = $this->getDateRange();
 
         return (float) Transaction::whereBetween('transaction_date', [$start, $end])
-            ->where('status', 'paid') // ✅ hanya transaksi yang sudah dibayar
+            ->where('status', 'paid')
             ->sum('total_price');
     }
 
-    /**
-     * Tampilkan data transaksi dalam tabel
-     */
+    /** =====================
+     *  🔹 Tabel Transaksi
+     *  ===================== */
     public function table(Table $table): Table
     {
         [$start, $end] = $this->getDateRange();
@@ -59,8 +54,9 @@ class Laporan extends Page implements Tables\Contracts\HasTable
         return $table
             ->query(
                 Transaction::query()
+                    ->with('items.product')
                     ->whereBetween('transaction_date', [$start, $end])
-                    ->where('status', 'paid') // ✅ hanya transaksi paid
+                    ->where('status', 'paid')
                     ->latest()
             )
             ->columns([
@@ -73,19 +69,27 @@ class Laporan extends Page implements Tables\Contracts\HasTable
                     ->dateTime('d-m-Y H:i')
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('items_summary')
+                    ->label('Produk & Jumlah')
+                    ->getStateUsing(fn ($record) => $record->items
+                        ->map(fn ($i) => ($i->product->name ?? '-') . ' ×' . $i->quantity)
+                        ->join(', ')
+                    )
+                    ->limit(60),
+
                 Tables\Columns\TextColumn::make('total_price')
                     ->label('Total (Rp)')
                     ->money('IDR', true)
                     ->sortable(),
             ])
-            ->paginated()
             ->defaultSort('transaction_date', 'desc')
+            ->paginated(10)
             ->emptyStateHeading('Tidak ada transaksi untuk periode ini.');
     }
 
-    /**
-     * Heading dinamis berdasarkan range
-     */
+    /** =====================
+     *  🔹 Label Heading
+     *  ===================== */
     public function getHeading(): string
     {
         return 'Laporan Pendapatan (' . $this->getRangeLabel() . ')';
@@ -105,28 +109,39 @@ class Laporan extends Page implements Tables\Contracts\HasTable
         $this->dispatch('$refresh');
     }
 
-    /**
-     * Widget ringkasan di atas tabel
-     */
-    protected function getHeaderWidgets(): array
+    /** =====================
+     *  🔹 Tombol Header
+     *  ===================== */
+    protected function getHeaderActions(): array
     {
         return [
-            \App\Filament\Widgets\LaporanOverview::class,
+            Actions\Action::make('exportPdf')
+                ->label('Export PDF')
+                ->button()
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('success')
+                ->action(fn() => $this->exportPdf()),
         ];
     }
 
-    /**
-     * Export PDF
-     */
+    /** =====================
+     *  🔹 Export ke PDF
+     *  ===================== */
     public function exportPdf()
     {
+        [$start, $end] = $this->getDateRange();
+        $total = $this->getTotalPendapatan();
+
+        $transactions = Transaction::with('items.product')
+            ->whereBetween('transaction_date', [$start, $end])
+            ->where('status', 'paid')
+            ->get();
+
         $data = [
             'title' => 'Laporan Pendapatan ' . $this->getRangeLabel(),
             'rangeLabel' => $this->getRangeLabel(),
-            'total' => $this->getTotalPendapatan(),
-            'transactions' => Transaction::whereBetween('transaction_date', $this->getDateRange())
-                ->where('status', 'paid') // ✅ hanya paid
-                ->get(),
+            'formattedTotal' => 'Rp ' . number_format($total, 0, ',', '.'),
+            'transactions' => $transactions,
         ];
 
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.laporan', $data)

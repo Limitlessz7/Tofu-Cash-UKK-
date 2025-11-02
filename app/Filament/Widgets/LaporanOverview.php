@@ -9,40 +9,44 @@ use Carbon\Carbon;
 
 class LaporanOverview extends BaseWidget
 {
-    public ?string $range = 'today';
-
     protected function getStats(): array
     {
-        [$start, $end] = $this->getDateRange();
+        $chartData = collect(range(6, 0))->map(function ($i) {
+            $date = Carbon::today()->subDays($i);
+            return Transaction::where('status', 'paid')
+                ->whereDate('transaction_date', $date)
+                ->sum('total_price');
+        });
 
-        // ✅ Hanya ambil transaksi dengan status "paid"
-        $total = (float) Transaction::where('status', 'paid')
-            ->whereBetween('transaction_date', [$start, $end])
-            ->sum('total_price');
+        $totalHariIni   = $chartData->last();
+        $totalKemarin   = $chartData->slice(-2, 1)->first() ?? 0;
+        $persentaseNaik = $totalKemarin > 0
+            ? (($totalHariIni - $totalKemarin) / $totalKemarin) * 100
+            : 0;
+
+        $chartValues = $chartData->toArray();
+
+        $deskripsi = $persentaseNaik > 0
+            ? '+' . number_format($persentaseNaik, 1) . '% dibanding kemarin'
+            : ($persentaseNaik < 0
+                ? number_format($persentaseNaik, 1) . '% turun dari kemarin'
+                : 'Stabil dibanding kemarin');
 
         return [
-            Stat::make('Total Pendapatan', 'Rp ' . number_format($total, 0, ',', '.'))
-                ->description($this->getRangeLabel())
-                ->descriptionIcon('heroicon-o-currency-dollar')
-                ->color('success'),
+            Stat::make('Total Pendapatan Hari Ini', 'Rp ' . number_format($totalHariIni, 0, ',', '.'))
+                ->description($deskripsi)
+                ->descriptionIcon('heroicon-o-currency-dollar') // 💰 Ikon uang
+                ->color('success') // Selalu hijau (cuan)
+                ->chart($chartValues)
+                ->extraAttributes([
+                    'class' => '
+                        bg-gradient-to-br from-emerald-400/20 to-green-500/10
+                        dark:from-emerald-500/10 dark:to-green-400/5
+                        border border-emerald-400/30 dark:border-emerald-500/30
+                        rounded-2xl shadow-[0_4px_25px_rgba(0,0,0,0.25)]
+                        transition hover:scale-[1.01]
+                    ',
+                ]),
         ];
-    }
-
-    protected function getDateRange(): array
-    {
-        return match ($this->range) {
-            'week'  => [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()],
-            'month' => [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()],
-            default => [Carbon::today()->startOfDay(), Carbon::today()->endOfDay()],
-        };
-    }
-
-    private function getRangeLabel(): string
-    {
-        return match ($this->range) {
-            'week'  => 'Minggu Ini',
-            'month' => 'Bulan Ini',
-            default => 'Hari Ini',
-        };
     }
 }

@@ -2,183 +2,252 @@
 
 namespace App\Filament\Resources;
 
-use Filament\Tables;
-use Filament\Forms;
+use App\Filament\Resources\TransactionResource\Pages;
 use App\Models\Product;
 use App\Models\Transaction;
+use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Tables\Table;
 use Filament\Resources\Resource;
-use Filament\Forms\Components\Select;
+use Filament\Tables;
+use Filament\Tables\Table;
+use Filament\Forms\Components\Section;
+use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\DateTimePicker;
-use Filament\Forms\Components\Grid;
-use Filament\Forms\Components\Section;
-use App\Filament\Resources\TransactionResource\Pages;
-use Illuminate\Support\Str;
 
 class TransactionResource extends Resource
 {
     protected static ?string $model = Transaction::class;
+    protected static ?string $navigationIcon = 'heroicon-o-banknotes';
     protected static ?string $navigationLabel = 'Transaksi';
-
-    protected static array $featureIconMap = [
-        'transaksi' => 'heroicon-o-currency-dollar',
-        'transaction' => 'heroicon-o-currency-dollar',
-        'default' => 'heroicon-o-rectangle-stack',
-    ];
-
-    public static function getNavigationIcon(): ?string
-    {
-        $label = static::$navigationLabel ?? (static::$model ? class_basename(static::$model) : 'default');
-        $key = Str::of($label)->lower()->slug('_')->replace('-', '_')->toString();
-
-        return static::$featureIconMap[$key] ?? static::$featureIconMap['default'];
-    }
 
     public static function form(Form $form): Form
     {
-        return $form
-            ->schema([
-                Grid::make(2)
-                    ->schema([
-                        // 🔹 Bagian kiri: data transaksi
-                        Section::make('Transaction Info')
-                            ->schema([
-                                DateTimePicker::make('transaction_date')
-                                    ->label('Tanggal')
-                                    ->default(now())
-                                    ->required(),
+        return $form->schema([
+            Grid::make(2)
+                ->schema([
+                    // ================= KIRI =================
+                    Section::make('Informasi Transaksi')
+                        ->schema([
+                            DateTimePicker::make('transaction_date')
+                                ->label('Tanggal Transaksi')
+                                ->default(now())
+                                ->required(),
 
-                                TextInput::make('paid_amount')
-                                    ->label('PAID')
-                                    ->numeric()
-                                    ->required()
-                                    ->reactive()
-                                    ->afterStateUpdated(function ($state, callable $set, $get) {
-                                        $total = $get('total') ?? 0;
-                                        $set('change_amount', max(0, $state - $total));
-                                    }),
+                            TextInput::make('total')
+                                ->label('Total')
+                                ->numeric()
+                                ->disabled()
+                                ->dehydrated(true)
+                                ->default(0)
+                                ->reactive()
+                                ->afterStateHydrated(function ($set, $record) {
+                                    if ($record && $record->items) {
+                                        $set('total', $record->items->sum('subtotal'));
+                                    }
+                                }),
 
-                                TextInput::make('change_amount')
-                                    ->label('Change')
-                                    ->numeric()
-                                    ->disabled()
-                                    ->dehydrated(true),
+                            TextInput::make('paid_amount')
+                                ->label('Dibayar (PAID)')
+                                ->numeric()
+                                ->required()
+                                ->reactive()
+                                ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                    $total = (float) ($get('total') ?? 0);
+                                    $change = max(0, $state - $total);
+                                    $set('change_amount', $change);
+                                    $set('status', $state >= $total ? 'paid' : 'unpaid');
+                                })
+                                ->afterStateHydrated(function ($set, $record) {
+                                    if ($record) {
+                                        $total = $record->items->sum('subtotal');
+                                        $paid = $record->paid_amount ?? 0;
+                                        $change = max(0, $paid - $total);
+                                        $set('change_amount', $change);
+                                        $set('status', $paid >= $total ? 'paid' : 'unpaid');
+                                    }
+                                }),
 
-                                Select::make('status')
-                                    ->label('Status')
-                                    ->options([
-                                        'paid' => 'Paid',
-                                        'unpaid' => 'Unpaid',
-                                        'cancelled' => 'Cancelled',
-                                    ])
-                                    ->required()
-                                    ->default('unpaid'),
-                            ])
-                            ->columnSpan(1),
+                            TextInput::make('change_amount')
+                                ->label('Kembalian (Change)')
+                                ->numeric()
+                                ->disabled()
+                                ->dehydrated(true),
 
-                        // 🔹 Bagian kanan: repeater detail produk
-                        Section::make('Detail Transaction')
-                            ->schema([
-                                Repeater::make('items')
-                                    ->relationship('items')
-                                    ->label('Detail Produk')
-                                    ->minItems(1)
-                                    ->schema([
-                                        Select::make('product_id')
-                                            ->label('Product')
-                                            ->relationship('product', 'name')
-                                            ->required()
-                                            ->reactive()
-                                            ->afterStateUpdated(function ($state, callable $set) {
-                                                $price = Product::find($state)?->price ?? 0;
-                                                $set('price', $price);
-                                                $set('subtotal', $price); // default qty=1
-                                            }),
+                            Select::make('status')
+                                ->label('Status')
+                                ->options([
+                                    'paid' => 'Paid',
+                                    'unpaid' => 'Unpaid',
+                                    'cancelled' => 'Cancelled',
+                                ])
+                                ->default('unpaid')
+                                ->required(),
+                        ])
+                        ->columnSpan(1),
 
-                                        TextInput::make('quantity')
-                                            ->label('Jumlah')
-                                            ->numeric()
-                                            ->minValue(1)
-                                            ->default(1)
-                                            ->required()
-                                            ->reactive()
-                                            ->afterStateUpdated(function ($state, callable $set, $get) {
-                                                $price = $get('price') ?? 0;
-                                                $set('subtotal', $state * $price);
-                                            }),
+                    // ================= KANAN =================
+                    Section::make('Detail Produk')
+                        ->schema([
+                            Repeater::make('items')
+                                ->relationship('items')
+                                ->label('Produk Dibeli')
+                                ->minItems(1)
+                                ->schema([
+                                    Select::make('product_id')
+                                        ->label('Produk')
+                                        ->relationship('product', 'name')
+                                        ->required()
+                                        ->reactive()
+                                        ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                            $price = Product::find($state)?->price ?? 0;
+                                            $quantity = (int) ($get('quantity') ?? 1);
+                                            $subtotal = $price * $quantity;
+                                            $set('price', $price);
+                                            $set('subtotal', $subtotal);
+                                            self::recalculateParent($set, $get);
+                                        }),
 
-                                        TextInput::make('price')
-                                            ->label('Harga/item')
-                                            ->numeric()
-                                            ->disabled()
-                                            ->dehydrated(true),
+                                    TextInput::make('quantity')
+                                        ->label('Jumlah')
+                                        ->numeric()
+                                        ->minValue(1)
+                                        ->default(1)
+                                        ->required()
+                                        ->reactive()
+                                        ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                            $price = (float) ($get('price') ?? 0);
+                                            $set('subtotal', $price * $state);
+                                            self::recalculateParent($set, $get);
+                                        }),
 
-                                        TextInput::make('subtotal')
-                                            ->label('Subtotal')
-                                            ->numeric()
-                                            ->disabled()
-                                            ->dehydrated(true),
-                                    ])
-                                    ->columns(4),
-                            ])
-                            ->columnSpan(1),
-                    ]),
-            ]);
+                                    TextInput::make('price')
+                                        ->label('Harga/item')
+                                        ->numeric()
+                                        ->disabled()
+                                        ->dehydrated(true),
+
+                                    TextInput::make('subtotal')
+                                        ->label('Subtotal')
+                                        ->numeric()
+                                        ->disabled()
+                                        ->dehydrated(true),
+                                ])
+                                ->columns(4)
+                                ->defaultItems(1)
+                                ->addActionLabel('Tambah Produk'),
+                        ])
+                        ->columnSpan(1),
+                ]),
+        ]);
     }
 
+    /**
+     * Recalculate total, change, and status dynamically
+     */
+    private static function recalculateParent(callable $set, callable $get): void
+    {
+        $items = $get('../../items') ?? [];
+        $total = 0;
+        foreach ($items as $item) {
+            $total += (float) ($item['subtotal'] ?? 0);
+        }
+
+        $set('../../total', $total);
+
+        $paid = (float) ($get('../../paid_amount') ?? 0);
+        $change = max(0, $paid - $total);
+        $set('../../change_amount', $change);
+        $set('../../status', $paid >= $total ? 'paid' : 'unpaid');
+    }
+
+    // ================= TABEL =================
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('transaction_date')
                     ->label('Tanggal')
-                    ->dateTime('d M Y H:i')
-                    ->sortable(),
+                    ->dateTime('d M Y H:i'),
+
+                Tables\Columns\TextColumn::make('items_list')
+                    ->label('Produk & Jumlah')
+                    ->getStateUsing(fn($record) =>
+                        $record->items->map(fn($item) =>
+                            $item->product?->name . ' ×' . $item->quantity
+                        )->join(', ')
+                    )
+                    ->limit(50)
+                    ->tooltip(fn($record) =>
+                        $record->items->map(fn($item) =>
+                            $item->product?->name . ' ×' . $item->quantity
+                        )->join(', ')
+                    ),
 
                 Tables\Columns\TextColumn::make('total')
-                    ->label('Total Harga')
-                    ->money('idr', true)
-                    ->sortable(),
+                    ->label('Total')
+                    ->money('IDR'),
 
                 Tables\Columns\TextColumn::make('paid_amount')
-                    ->label('PAID')
-                    ->money('idr', true),
+                    ->label('Dibayar')
+                    ->money('IDR'),
 
                 Tables\Columns\TextColumn::make('change_amount')
-                    ->label('Change')
-                    ->money('idr', true),
+                    ->label('Kembalian')
+                    ->money('IDR'),
 
                 Tables\Columns\BadgeColumn::make('status')
+                    ->label('Status')
                     ->colors([
                         'success' => 'paid',
                         'warning' => 'unpaid',
                         'danger' => 'cancelled',
-                    ])
-                    ->label('Status'),
-
-                Tables\Columns\TextColumn::make('items')
-                    ->label('Produk')
-                    ->formatStateUsing(fn ($state, $record) =>
-                        collect($record->items)->map(fn ($item) =>
-                            "{$item->product?->name} x{$item->quantity}"
-                        )->implode(', ')
-                    )
-                    ->wrap(),
-            ])
-            ->filters([
-                Tables\Filters\Filter::make('Hari Ini')
-                    ->query(fn ($query) => $query->whereDate('transaction_date', today())),
+                    ]),
             ])
             ->actions([
+                Tables\Actions\ViewAction::make()
+                    ->label('Detail'),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
                 Tables\Actions\DeleteBulkAction::make(),
             ]);
+    }
+
+    // ================= MUTASI DATA =================
+    public static function mutateFormDataBeforeCreate(array $data): array
+    {
+        return self::calculateTotals($data);
+    }
+
+    public static function mutateFormDataBeforeSave(array $data): array
+    {
+        return self::calculateTotals($data);
+    }
+
+    private static function calculateTotals(array $data): array
+    {
+        $total = 0;
+
+        if (isset($data['items']) && is_array($data['items'])) {
+            foreach ($data['items'] as &$item) {
+                $product = Product::find($item['product_id']);
+                $price = $product?->price ?? 0;
+                $subtotal = $price * ($item['quantity'] ?? 1);
+                $item['price'] = $price;
+                $item['subtotal'] = $subtotal;
+                $total += $subtotal;
+            }
+            $data['total'] = $total;
+        }
+
+        $paid = $data['paid_amount'] ?? 0;
+        $data['change_amount'] = max(0, $paid - $total);
+        $data['status'] = $paid >= $total ? 'paid' : 'unpaid';
+
+        return $data;
     }
 
     public static function getRelations(): array
@@ -193,32 +262,5 @@ class TransactionResource extends Resource
             'create' => Pages\CreateTransaction::route('/create'),
             'edit' => Pages\EditTransaction::route('/{record}/edit'),
         ];
-    }
-
-    /**
-     * Hitung total & change sebelum disimpan
-     */
-    public static function mutateFormDataBeforeCreate(array $data): array
-    {
-        $total = 0;
-
-        if (!empty($data['items'])) {
-            foreach ($data['items'] as &$item) {
-                $product = Product::find($item['product_id']);
-                $item['price'] = $product?->price ?? 0;
-                $item['subtotal'] = ($item['quantity'] ?? 0) * $item['price'];
-                $total += $item['subtotal'];
-            }
-        }
-
-        $data['total'] = $total;
-        $data['change_amount'] = max(0, ($data['paid_amount'] ?? 0) - $total);
-
-        return $data;
-    }
-
-    public static function mutateFormDataBeforeSave(array $data): array
-    {
-        return static::mutateFormDataBeforeCreate($data);
     }
 }

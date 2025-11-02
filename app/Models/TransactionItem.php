@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class TransactionItem extends Model
 {
+    protected $table = 'transaction_items';
+
     protected $fillable = [
         'transaction_id',
         'product_id',
@@ -14,6 +16,15 @@ class TransactionItem extends Model
         'subtotal',
     ];
 
+    protected $casts = [
+        'quantity' => 'integer',
+        'price' => 'float',
+        'subtotal' => 'float',
+    ];
+
+    /**
+     * 🔹 Update stok otomatis saat create/update/delete
+     */
     protected static function booted()
     {
         // Kurangi stok saat item dibuat
@@ -37,20 +48,27 @@ class TransactionItem extends Model
             $product = $item->product;
             if ($product) {
                 $originalQty = $item->getOriginal('quantity');
-                $product->increment('stock', $originalQty);
-                $product->decrement('stock', $item->quantity);
+                $diff = $item->quantity - $originalQty;
+                if ($diff !== 0) {
+                    $product->decrement('stock', $diff);
+                }
             }
         });
     }
 
+    /**
+     * 🔹 Relasi ke Transaction
+     */
     public function transaction()
     {
         return $this->belongsTo(Transaction::class);
     }
 
+    /**
+     * 🔹 Relasi ke Product
+     */
     public function product()
     {
         return $this->belongsTo(Product::class);
     }
 }
-    
