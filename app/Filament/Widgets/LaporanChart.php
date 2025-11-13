@@ -10,20 +10,21 @@ class LaporanChart extends ChartWidget
 {
     protected static ?string $heading = 'Grafik Pendapatan';
 
-    public ?string $range = 'today';
+    public ?string $startDate = null;
+    public ?string $endDate = null;
+
+    // 🟩 inject dari Laporan page
+    protected static ?string $pollingInterval = null;
 
     protected function getData(): array
     {
-        [$start, $end] = $this->getDateRange();
+        $start = $this->startDate ? Carbon::parse($this->startDate) : Carbon::now()->startOfMonth();
+        $end = $this->endDate ? Carbon::parse($this->endDate) : Carbon::now()->endOfMonth();
 
-        if ($this->range === 'month') {
-            $period = collect(range(1, Carbon::now()->daysInMonth))
-                ->map(fn ($day) => Carbon::now()->startOfMonth()->addDays($day - 1));
-        } elseif ($this->range === 'week') {
-            $period = collect(range(0, 6))
-                ->map(fn ($i) => Carbon::now()->startOfWeek()->addDays($i));
-        } else {
-            $period = collect([Carbon::today()]);
+        // generate setiap hari dalam range
+        $period = collect();
+        for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+            $period->push($date->copy());
         }
 
         $labels = $period->map(fn ($date) => $date->translatedFormat('d M'));
@@ -41,6 +42,7 @@ class LaporanChart extends ChartWidget
                 'backgroundColor' => 'rgba(16,185,129,0.2)',
                 'tension' => 0.4,
                 'borderWidth' => 3,
+                'fill' => true,
             ]],
             'labels' => $labels,
         ];
@@ -51,40 +53,23 @@ class LaporanChart extends ChartWidget
         return 'bar';
     }
 
+    // optional: tampilan chart lebih halus
     protected function getOptions(): array
     {
         return [
             'plugins' => [
-                'legend' => ['labels' => ['color' => '#d1d5db']],
+                'legend' => ['labels' => ['color' => '#374151']],
             ],
             'scales' => [
-                'x' => ['ticks' => ['color' => '#9ca3af']],
+                'x' => ['ticks' => ['color' => '#6b7280']],
                 'y' => [
                     'ticks' => [
-                        'color' => '#9ca3af',
+                        'color' => '#6b7280',
                         'callback' => 'value => "Rp " + new Intl.NumberFormat("id-ID").format(value)',
                     ],
-                    'grid' => ['color' => 'rgba(255,255,255,0.05)'],
-                ],
-            ],
-            'elements' => [
-                'bar' => [
-                    'borderRadius' => 6,
-                    'shadowOffsetX' => 2,
-                    'shadowOffsetY' => 3,
-                    'shadowBlur' => 8,
-                    'shadowColor' => 'rgba(0,0,0,0.25)',
+                    'grid' => ['color' => 'rgba(0,0,0,0.05)'],
                 ],
             ],
         ];
-    }
-
-    protected function getDateRange(): array
-    {
-        return match ($this->range) {
-            'week' => [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()],
-            'month' => [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()],
-            default => [Carbon::today()->startOfDay(), Carbon::today()->endOfDay()],
-        };
     }
 }
