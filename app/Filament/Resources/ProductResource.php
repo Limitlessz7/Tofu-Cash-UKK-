@@ -15,6 +15,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Actions\BulkActionGroup;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Illuminate\Support\Str;
+use Filament\Notifications\Notification;
 
 class ProductResource extends \Filament\Resources\Resource
 {
@@ -42,7 +43,7 @@ class ProductResource extends \Filament\Resources\Resource
     }
 
     /**
-     * FORM — untuk Create & Edit Produk
+     * FORM — Create/Edit Produk
      */
     public static function form(Form $form): Form
     {
@@ -55,7 +56,7 @@ class ProductResource extends \Filament\Resources\Resource
                             ->label('Nama Produk')
                             ->required()
                             ->maxLength(255)
-                            ->placeholder('Contoh: baso tahu'),
+                            ->placeholder('Contoh: Baso Tahu'),
 
                         Textarea::make('description')
                             ->label('Deskripsi')
@@ -74,14 +75,37 @@ class ProductResource extends \Filament\Resources\Resource
                             ->required()
                             ->numeric()
                             ->minValue(0)
-                            ->suffix('unit'),
+                            ->suffix('unit')
+                            ->reactive()
+
+                            // Ketika membuka form dan stok = 0
+                            ->afterStateHydrated(function ($state) {
+                                if ($state == 0) {
+                                    Notification::make()
+                                        ->title('Stok Habis!')
+                                        ->body('Produk ini sedang tidak tersedia. Tambahkan stok sebelum dijual.')
+                                        ->warning()
+                                        ->send();
+                                }
+                            })
+
+                            // Ketika user mengubah nilai stok menjadi 0
+                            ->afterStateUpdated(function ($state) {
+                                if ($state == 0) {
+                                    Notification::make()
+                                        ->title('Stok menjadi 0!')
+                                        ->body('Produk ini tidak dapat dijual karena stok habis.')
+                                        ->warning()
+                                        ->send();
+                                }
+                            }),
                     ])
                     ->columns(2),
             ]);
     }
 
     /**
-     * TABLE — untuk List Produk
+     * TABLE — List Produk
      */
     public static function table(Table $table): Table
     {
@@ -97,8 +121,17 @@ class ProductResource extends \Filament\Resources\Resource
                     ->money('IDR', true)
                     ->sortable(),
 
+                // 🔥 Badge Stok Habis
                 TextColumn::make('stock')
                     ->label('Stok')
+                    ->badge()
+                    ->formatStateUsing(function ($state) {
+                        return $state == 0 ? 'Habis' : $state;
+                    })
+                    ->colors([
+                        'danger' => fn($state) => $state == 0, // merah kalau habis
+                        'success' => fn($state) => $state > 0, // hijau kalau ada stok
+                    ])
                     ->sortable(),
 
                 TextColumn::make('created_at')
@@ -107,15 +140,18 @@ class ProductResource extends \Filament\Resources\Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+
             ->actions([
                 Actions\EditAction::make(),
                 Actions\DeleteAction::make(),
             ])
+
             ->bulkActions([
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),
             ])
+
             ->emptyStateHeading('Belum ada produk.')
             ->emptyStateDescription('Tambahkan produk baru untuk memulai penjualan.');
     }
