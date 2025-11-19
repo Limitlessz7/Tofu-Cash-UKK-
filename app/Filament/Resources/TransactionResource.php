@@ -110,7 +110,7 @@ class TransactionResource extends Resource
                                             $set('price', $price);
 
                                             // Ambil quantity
-                                            $qty = (int) ($get('quantity') ?? 1);
+                                            $qty = (float) ($get('quantity') ?? 1);
 
                                             // Cek stok produk
                                             if ($product && $qty > $product->stock) {

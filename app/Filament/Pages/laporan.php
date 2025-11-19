@@ -18,47 +18,59 @@ class Laporan extends Page implements Tables\Contracts\HasTable
     protected static ?string $title = 'Laporan Pendapatan';
     protected static string $view = 'filament.pages.laporan';
 
-    public string $range = 'today';
+    public ?string $startDate = null;
+    public ?string $endDate = null;
 
-    /** =====================
-     *  🔹 Helper Range Tanggal
-     *  ===================== */
+    /**
+     * RANGE TANGGAL
+     */
     protected function getDateRange(): array
     {
-        return match ($this->range) {
-            'week'  => [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()],
-            'month' => [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()],
-            default => [Carbon::today()->startOfDay(), Carbon::today()->endOfDay()],
-        };
+        if ($this->startDate && $this->endDate) {
+            return [
+                Carbon::parse($this->startDate)->startOfDay(),
+                Carbon::parse($this->endDate)->endOfDay()
+            ];
+        }
+
+        // Default 30 hari terakhir
+        $end = Carbon::now()->endOfDay();
+        $start = $end->copy()->subDays(29)->startOfDay();
+        return [$start, $end];
     }
 
-    /** =====================
-     *  🔹 Total Pendapatan
-     *  ===================== */
-    protected function getTotalPendapatan(): float
+    /**
+     * COMPUTED PROPERTY
+     */
+    public function getTotalPendapatanProperty(): float
     {
         [$start, $end] = $this->getDateRange();
 
-        return (float) Transaction::whereBetween('transaction_date', [$start, $end])
-            ->where('status', 'paid')
+        return (float) Transaction::where('status', 'paid')
+            ->whereBetween('transaction_date', [$start, $end])
             ->sum('total_price');
     }
 
-    /** =====================
-     *  🔹 Tabel Transaksi
-     *  ===================== */
+    // Wrapper agar pemanggilan lama tetap aman
+    public function getTotalPendapatan(): float
+    {
+        return $this->totalPendapatan;
+    }
+
+    /**
+     * TABEL TRANSAKSI
+     */
     public function table(Table $table): Table
     {
         [$start, $end] = $this->getDateRange();
 
+        $query = Transaction::query()
+            ->with('items.product')
+            ->where('status', 'paid')
+            ->whereBetween('transaction_date', [$start, $end]);
+
         return $table
-            ->query(
-                Transaction::query()
-                    ->with('items.product')
-                    ->whereBetween('transaction_date', [$start, $end])
-                    ->where('status', 'paid')
-                    ->latest()
-            )
+            ->query($query)
             ->columns([
                 Tables\Columns\TextColumn::make('id')
                     ->label('ID')
@@ -66,89 +78,70 @@ class Laporan extends Page implements Tables\Contracts\HasTable
 
                 Tables\Columns\TextColumn::make('transaction_date')
                     ->label('Tanggal')
-                    ->dateTime('d-m-Y H:i')
-                    ->sortable(),
+                    ->dateTime('d/m/Y H:i'),
 
                 Tables\Columns\TextColumn::make('items_summary')
                     ->label('Produk & Jumlah')
-                    ->getStateUsing(fn ($record) => $record->items
-                        ->map(fn ($i) => ($i->product->name ?? '-') . ' ×' . $i->quantity)
-                        ->join(', ')
-                    )
-                    ->limit(60),
+                    ->getStateUsing(fn ($record) =>
+                        $record->items
+                            ->map(fn ($i) => ($i->product->name ?? '-') . ' ×' . $i->quantity)
+                            ->join(', ')
+                    ),
 
                 Tables\Columns\TextColumn::make('total_price')
-                    ->label('Total (Rp)')
-                    ->money('IDR', true)
-                    ->sortable(),
+                    ->label('Total(Rp)')
+                    ->money('IDR', true),
             ])
             ->defaultSort('transaction_date', 'desc')
-            ->paginated(10)
-            ->emptyStateHeading('Tidak ada transaksi untuk periode ini.');
+            ->paginated(10);
     }
 
-    /** =====================
-     *  🔹 Label Heading
-     *  ===================== */
-    public function getHeading(): string
-    {
-        return 'Laporan Pendapatan (' . $this->getRangeLabel() . ')';
-    }
+    /**
+     * Refresh otomatis saat tanggal berubah
+     */
+    public function updatedStartDate() { $this->dispatch('$refresh'); }
+    public function updatedEndDate()   { $this->dispatch('$refresh'); }
 
-    private function getRangeLabel(): string
-    {
-        return match ($this->range) {
-            'week'  => 'Minggu Ini',
-            'month' => 'Bulan Ini',
-            default => 'Hari Ini',
-        };
-    }
-
-    public function updatedRange(): void
-    {
-        $this->dispatch('$refresh');
-    }
-
-    /** =====================
-     *  🔹 Tombol Header
-     *  ===================== */
+    /**
+     * EXPORT PDF
+     */
     protected function getHeaderActions(): array
     {
         return [
             Actions\Action::make('exportPdf')
                 ->label('Export PDF')
-                ->button()
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('success')
-                ->action(fn() => $this->exportPdf()),
+                ->action(fn () => $this->exportPdf()),
         ];
     }
 
-    /** =====================
-     *  🔹 Export ke PDF
-     *  ===================== */
     public function exportPdf()
     {
         [$start, $end] = $this->getDateRange();
-        $total = $this->getTotalPendapatan();
 
         $transactions = Transaction::with('items.product')
-            ->whereBetween('transaction_date', [$start, $end])
             ->where('status', 'paid')
+            ->whereBetween('transaction_date', [$start, $end])
             ->get();
 
+        $rangeLabel = $start->format('d M') . ' – ' . $end->format('d M');
+
         $data = [
-            'title' => 'Laporan Pendapatan ' . $this->getRangeLabel(),
-            'rangeLabel' => $this->getRangeLabel(),
-            'formattedTotal' => 'Rp ' . number_format($total, 0, ',', '.'),
+            'title' => 'Laporan Pendapatan',
+            'range' => [
+                'start' => $start->format('d/m/Y'),
+                'end'   => $end->format('d/m/Y'),
+            ],
+            'formattedTotal' => 'Rp ' . number_format($this->totalPendapatan, 0, ',', '.'),
             'transactions' => $transactions,
+            'rangeLabel' => $rangeLabel,
         ];
 
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.laporan', $data)
-            ->setPaper('a4', 'portrait');
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.laporan', $data);
 
         return response()->streamDownload(
-            fn() => print($pdf->output()),
+            fn () => print($pdf->output()),
             'laporan-' . now()->format('Y-m-d') . '.pdf'
         );
     }
