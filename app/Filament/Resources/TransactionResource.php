@@ -16,6 +16,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Notifications\Notification;
 
 class TransactionResource extends Resource
 {
@@ -102,11 +103,30 @@ class TransactionResource extends Resource
                                         ->required()
                                         ->reactive()
                                         ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                            $price = Product::find($state)?->price ?? 0;
-                                            $quantity = (int) ($get('quantity') ?? 1);
-                                            $subtotal = $price * $quantity;
+                                            $product = Product::find($state);
+                                            $price = $product?->price ?? 0;
+
+                                            // Set harga awal
                                             $set('price', $price);
-                                            $set('subtotal', $subtotal);
+
+                                            // Ambil quantity
+                                            $qty = (int) ($get('quantity') ?? 1);
+
+                                            // Cek stok produk
+                                            if ($product && $qty > $product->stock) {
+                                                $qty = $product->stock;
+                                                $set('quantity', $qty);
+
+                                                Notification::make()
+                                                    ->title('Jumlah melebihi stok!')
+                                                    ->body("Stok tersisa: {$product->stock}")
+                                                    ->warning()
+                                                    ->send();
+                                            }
+
+                                            // Set subtotal
+                                            $set('subtotal', $price * $qty);
+
                                             self::recalculateParent($set, $get);
                                         }),
 
@@ -118,8 +138,26 @@ class TransactionResource extends Resource
                                         ->required()
                                         ->reactive()
                                         ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                                            $productId = $get('product_id');
+                                            $product = Product::find($productId);
+
+                                            if ($product) {
+                                                if ($state > $product->stock) {
+                                                    $set('quantity', $product->stock);
+
+                                                    Notification::make()
+                                                        ->title('Jumlah melebihi stok!')
+                                                        ->body("Stok tersedia hanya {$product->stock}")
+                                                        ->warning()
+                                                        ->send();
+
+                                                    $state = $product->stock;
+                                                }
+                                            }
+
                                             $price = (float) ($get('price') ?? 0);
                                             $set('subtotal', $price * $state);
+
                                             self::recalculateParent($set, $get);
                                         }),
 
@@ -235,6 +273,13 @@ class TransactionResource extends Resource
             foreach ($data['items'] as &$item) {
                 $product = Product::find($item['product_id']);
                 $price = $product?->price ?? 0;
+                $stock = $product?->stock ?? 0;
+
+                // Batasi quantity agar tidak lebih dari stok
+                if (($item['quantity'] ?? 1) > $stock) {
+                    $item['quantity'] = $stock;
+                }
+
                 $subtotal = $price * ($item['quantity'] ?? 1);
                 $item['price'] = $price;
                 $item['subtotal'] = $subtotal;
