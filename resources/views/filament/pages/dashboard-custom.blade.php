@@ -20,7 +20,7 @@ $monthSold = TransactionItem::whereHas('transaction', function ($q) {
         {{-- Header --}}
         <div class="flex items-center justify-between">
             <h2 class="text-3xl font-bold text-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.4)]">
-                Dashboard
+                 
             </h2>
             <span class="text-sm text-gray-400">
                 {{ now()->translatedFormat('l, d F Y') }}

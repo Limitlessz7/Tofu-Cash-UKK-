@@ -29,7 +29,7 @@
         {{-- TOTAL PENDAPATAN (tetap tampil) --}}
         <div class="p-6 rounded-xl border bg-white shadow-sm">
             <h3 class="text-lg font-semibold mb-1 flex items-center gap-2">
-                <x-heroicon-o-banknotes class="w-5 h-5 text-green-600"/>
+                <x-heroicon-o-banknotes class="w-5 h-5 text-dark-600"/>
                 Total Pendapatan
             </h3>
 
