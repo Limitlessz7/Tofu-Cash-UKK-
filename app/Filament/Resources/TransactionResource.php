@@ -54,6 +54,7 @@ class TransactionResource extends Resource
                                 ->label('Dibayar (PAID)')
                                 ->numeric()
                                 ->required()
+                                ->minValue(0)
                                 ->reactive()
                                 ->afterStateUpdated(function ($state, callable $set, callable $get) {
                                     $total = (float) ($get('total') ?? 0);
