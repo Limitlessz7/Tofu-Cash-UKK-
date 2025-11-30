@@ -86,7 +86,10 @@ class TransactionResource extends Resource
                                     'cancelled' => 'Cancelled',
                                 ])
                                 ->default('unpaid')
-                                ->required(),
+                                ->required()
+                                ->disabled()
+                                ->dehydrated(true),
+
                         ])
                         ->columnSpan(1),
 
